@@ -1,13 +1,5 @@
 
-//NOTE: Thermopile values are now smoothed   (((Xt-2...)/2 + Xt-1)/2 + X)/2    6/14/17
-/* NN 0: none
-   NN 1: mouth
-   NN 2: fronthead
-   NN 3: tophead
-   NN 4: backhead
-   NN 5: righthead
-   NN 6: lefthead
- */
+
 /********************************************************************************************************/
 /************************ INCLUDES **********************************************************************/
 /********************************************************************************************************/
@@ -19,6 +11,7 @@
 #include <Wire.h>
 #include <KX126_SPI.h>        //accelerometer
 #include <VL53L0X.h>          //lidar distance sensor
+#include <APDS9960.h>         //4X IR photodiode gesture sensor
 
 
 /********************************************************************************************************/
@@ -55,9 +48,12 @@ float   detect_objT_highpass =   102;
 // OR P5? #define BATTERY_PIN       5
 
 //Lidar Pins
-#define VL53L0X_SELECT1             30
+//#define VL53L0X_SELECT1             30
 #define VL53L0X_SELECT2             29
 #define VL53L0X_SELECT3             16
+
+//IR LED gesture sensor
+#define APDS9960_INT                30 
 
 //Accelerometer Pins
 #define CS_PIN                      24
@@ -87,8 +83,8 @@ float   detect_objT_highpass =   102;
 #define MLX90615_I2CADDR11        0x36
 #define MLX90615_I2CADDR12        0x37
 #define MLX90615_I2CADDR13        0x38
-#define MLX90615_I2CADDR14        0x39
-#define MLX90615_I2CADDR15        0x3A
+#define MLX90615_I2CADDR14        0x3A
+#define MLX90615_I2CADDR15        0x3B
 
 
 // RAM
@@ -188,6 +184,10 @@ VL53L0X lidar3;
 
 //KX022 Accelerometer
 KX126_SPI kx126(CS_PIN);
+
+//IR LED gesture sensor APDS9960
+APDS9960 apds = APDS9960();
+int isr_flag = 0;
 
 //Bluetooth
 // create peripheral instance, see pinouts above
@@ -432,7 +432,10 @@ void setupBluetooth(){
 void setup() 
 {
     //Configure lidar device selection pins (XSHUT)
-    pinMode(VL53L0X_SELECT1, OUTPUT); pinMode(VL53L0X_SELECT2, OUTPUT); pinMode(VL53L0X_SELECT3, OUTPUT); 
+    pinMode(VL53L0X_SELECT2, OUTPUT); pinMode(VL53L0X_SELECT3, OUTPUT); 
+
+    // Set APDS9960 interrupt pin as input
+    pinMode(APDS9960_INT, INPUT);
      
     Serial.begin(115200);
     if(debug) Serial.print("STARTING\t");
@@ -444,24 +447,15 @@ void setup()
     delay(50);
 
 
-
   /************ INIT VL53L0X DISTANCE SENSOR *****************************/
-
-
     //Reset lidar devices
- //   Serial.println("RESET VL53L0X LIDAR");
-    digitalWrite(VL53L0X_SELECT1, 0); digitalWrite(VL53L0X_SELECT2, 0); digitalWrite(VL53L0X_SELECT3, 0);    
+    digitalWrite(VL53L0X_SELECT2, 0); digitalWrite(VL53L0X_SELECT3, 0);    
     delay(100);
  
-    
     Serial.println("VL53L0X LIDAR1 INIT");
-    //disable (sleep mode) lidar #2 and lidar #3
-    digitalWrite(VL53L0X_SELECT1, 1); 
-    delay(100);
     lidar1.init();
     lidar1.setAddress(0x45);
     lidar1.setTimeout(500);
-
 
     Serial.println("VL53L0X LIDAR2 INIT");
     //wake up lidar #2
@@ -485,14 +479,33 @@ void setup()
   // fast as possible).  To use continuous timed mode
   // instead, provide a desired inter-measurement period in
   // ms (e.g. sensor.startContinuous(100)).
-    lidar1.startContinuous(60);
+    lidar1.startContinuous(65);
     delay(80);
-    lidar2.startContinuous(60);
+    lidar2.startContinuous(65);
     delay(80);
-    lidar3.startContinuous(60);
-     
+    lidar3.startContinuous(65);
 
-      /************ INIT KX126 ACCELEROMETER *****************************/
+
+  /************ INIT APDS9960 IR LED GESTURE SENSOR ******************/
+    // Initialize interrupt service routine
+    attachInterrupt(APDS9960_INT, interruptRoutine, FALLING);
+  
+    // Initialize APDS-9960 (configure I2C and initial values)
+    if ( apds.init() ) {
+      Serial.println(F("APDS-9960 initialization complete"));
+    } else {
+      Serial.println(F("Something went wrong during APDS-9960 init!"));
+    }
+    
+    // Start running the APDS-9960 gesture sensor engine
+    if ( apds.enableGestureSensor(true) ) {
+      Serial.println(F("Gesture sensor is now running"));
+    } else {
+      Serial.println(F("Something went wrong during gesture sensor init!"));
+    }
+
+
+  /************ INIT KX126 ACCELEROMETER *****************************/
     Serial.print("KX126 INIT RESPONSE WAS ");
     Serial.println(kx126.init());
     delay(200);
@@ -586,7 +599,13 @@ if(clocktime + speedMs < millis()){
    sampleThermopiles();
    if(debug_time){ Serial.print("Time after thermo read: "); Serial.println( (millis() - clocktime))/1000; }
 
-
+   /************** READ APDS9960 IR LED GESTURE SENSOR ******************/
+  if( isr_flag == 1 ) {
+    detachInterrupt(APDS9960_INT);
+    handleGesture();
+    isr_flag = 0;
+    attachInterrupt(APDS9960_INT, interruptRoutine, FALLING);
+  }
 
 
    /************** TRANSMIT SENSOR DATA OVER BLUETOOTH ******************/ 
@@ -894,4 +913,36 @@ int hex_to_ascii(char c, char d){
   return high+low;
 }
 
+void interruptRoutine() {
+  isr_flag = 1;
+}
 
+void handleGesture() {
+    if ( apds.isGestureAvailable() ) {
+      delayMicroseconds(1000);   
+      Serial.println("********************************************************************************************");
+    switch ( apds.readGesture() ) {
+      case DIR_UP:
+        Serial.println("UP");
+        break;
+      case DIR_DOWN:
+        Serial.println("DOWN");
+        break;
+      case DIR_LEFT:
+        Serial.println("LEFT");
+        break;
+      case DIR_RIGHT:
+        Serial.println("RIGHT");
+        break;
+      case DIR_NEAR:
+        Serial.println("NEAR");
+        break;
+      case DIR_FAR:
+        Serial.println("FAR");
+        break;
+      default:
+        Serial.println("NONE");
+    }
+    Serial.println("********************************************************************************************");
+  }
+}
