@@ -18,30 +18,24 @@
 #include <BLEUtil.h>
 #include <Wire.h>
 #include <KX126_SPI.h>        //accelerometer
-#include <VL6180X.h>          //distance sensor
+#include <VL53L0X.h>          //lidar distance sensor
 
-//pre-trained neural network weights and activation functions
-#include "neural_networks_LHAND_LHEAD.h"
-#include "neural_networks_LHAND_MOUTH.h"
 
 /********************************************************************************************************/
 /************************ CONSTANTS / SYSTEM VAR ********************************************************/
 /********************************************************************************************************/
 bool    debug = true;                 //turn serial on/off to get data or turn up sample rate
-bool    debug_time = false;           //turn loop component time debug on/off
+bool    debug_time = true;           //turn loop component time debug on/off
 
 //native max loop speed is about 35 ms or 28Hz
 float   speedLowpower  = 1000 / 6;    //2Hz default power saving speed
 float   speedBluetooth = 1000 / 16;   //16Hz while connected to 
 float   speedBallpark  = 1000 / 8;    //8Hz when NN approach target
 
-float   speedMs = speedLowpower;
+float   speedMs = speedBluetooth;
 
 float   detect_objT_lowpass =    80;
 float   detect_objT_highpass =   102;
-int     tempScaleAdjust =        12;
-int     limit_stopRepeatDetect = 200;
-//int   read_heart_rate_interval = 20;
 
 /********************************************************************************************************/
 /************************ DEFINITIONS *******************************************************************/
@@ -50,7 +44,7 @@ int     limit_stopRepeatDetect = 200;
 
 #define GREEN_LED_PIN               15
 
-#define BUTTON_PIN                  29
+#define BUTTON_PIN                  5 //dummy 29
 
 //#define HEART_RATE_LED_PIN        4
 //#define HEART_RATE_DETECTOR_PIN   29
@@ -58,7 +52,12 @@ int     limit_stopRepeatDetect = 200;
 #define VIBRATE_PIN                 8
 
 #define BATTERY_PIN                 28
-// OR P5? #define BATTERY_PIN                 5
+// OR P5? #define BATTERY_PIN       5
+
+//Lidar Pins
+#define VL53L0X_SELECT1             30
+#define VL53L0X_SELECT2             29
+#define VL53L0X_SELECT3             16
 
 //Accelerometer Pins
 #define CS_PIN                      24
@@ -72,12 +71,25 @@ int     limit_stopRepeatDetect = 200;
 #define PIN_SPI_MOSI         (KX022_SDI)
 #define PIN_SPI_SCK          (KX022_SCL)
 
+
 //Thermopile Addresses
 #define MLX90615_I2CADDR          0x00
 #define MLX90615_I2CADDR1         0x2A
 #define MLX90615_I2CADDR2         0x2B 
 #define MLX90615_I2CADDR3         0x2C
 #define MLX90615_I2CADDR4         0x2D
+#define MLX90615_I2CADDR5         0x2E
+#define MLX90615_I2CADDR6         0x3B     //0x2F not working, 30 & 31 taken by lidar
+#define MLX90615_I2CADDR7         0x32
+#define MLX90615_I2CADDR8         0x33
+#define MLX90615_I2CADDR9         0x34
+#define MLX90615_I2CADDR10        0x35
+#define MLX90615_I2CADDR11        0x36
+#define MLX90615_I2CADDR12        0x37
+#define MLX90615_I2CADDR13        0x38
+#define MLX90615_I2CADDR14        0x39
+#define MLX90615_I2CADDR15        0x3A
+
 
 // RAM
 #define MLX90615_RAWIR1           0x04
@@ -108,28 +120,22 @@ int     limit_stopRepeatDetect = 200;
     bool    greenLED_status = false;
 
   //Battery MGMT  
-    int batteryValue = 100;
-    float buttonBeginPressTime = 0;
+    int     batteryValue = 100;
+    float   buttonBeginPressTime = 0;
     
   //Button
     int     buttonState = 0;         // variable for reading the pushbutton
 
   //MLP (Multi Layer Perceptron) LSTM Neural Net
   //NN weights
-    int     nnLength = 500;
-    float   F[500];
+    int     selectNN;
     int     transmittedCounter = 0;
     bool    flag_haveNeural = false;
 
   //Detection
-    int     selectNN = 0;
-    float   fiveInScore = 0;
-    float   sevenInScore = 0;
     int     vibrate_counter = 0;
     bool    vibrate_status = false;
-    bool    flag_detect = false;              //gesture detected!
-    float   lastDetectTime = 0;
-    bool    flag_stopRepeatDetect = false;
+
 
   //Timestamp
     float   clocktime = 0;
@@ -140,29 +146,30 @@ int     limit_stopRepeatDetect = 200;
     int     command_value = 99; //controlls how device and app talk to each other
 
   //Bondstore flash storage
-    const unsigned char* bondStoreWriteData = 0; //reference var for bondstore flash storage
-    unsigned char* bondStoreReadData = 0; //reference var for bondstore flash storage
-    unsigned int bondStoreOffset = 1;         //default memory location for nn target configuration flash storage
-    unsigned int bondStoreLength = 1;         //default data length for nn target configuration flash storage
+    const unsigned char*  bondStoreWriteData = 0;       //reference var for bondstore flash storage
+    unsigned char*        bondStoreReadData = 0;        //reference var for bondstore flash storage
+    unsigned int          bondStoreOffset = 1;          //default memory location for nn target configuration flash storage
+    unsigned int          bondStoreLength = 1;          //default data length for nn target configuration flash storage
 
 
   //System
-    int     varState = 0; //variable state controlled in app and appended to data stream
-    bool sleepLight = false;
-    bool sleepDeep = false;
+    int     varState =    0; //variable state controlled in app and appended to data stream
+    bool sleepLight =     false;
+    bool sleepDeep =      false;
 
   //MLX90615 Thermopiles
-    float   TObj[4] = {0,0,0,0};
-    float   TAmb[4] = {0,0,0,0};
+    float   TObj[15] =    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    float   TAmb[15] =    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     float   TAmbAv;
 
-  //vl6180x Distance
-    float   distance = 0;
+  //vl53l0x Distance
+    float   distance[3] = {0,0,0};
+
  
   //KX126 Accelerometer
     // pins used for the connection with the sensor
     // the other you need are controlled by the SPI library):
-    const int dataReadyPin = 6;
+    const int dataReadyPin =  6;
     const int chipSelectPin = 7;
 
     float     acc[3];
@@ -174,8 +181,10 @@ int     limit_stopRepeatDetect = 200;
 /************************ DECLARATIONS ******************************************************************/
 /********************************************************************************************************/
 
-//Time of Flight LIDAR distance sensor
-VL6180X vl6180x;
+//Time of Flight LIDAR distance sensors
+VL53L0X lidar1;
+VL53L0X lidar2;
+VL53L0X lidar3;
 
 //KX022 Accelerometer
 KX126_SPI kx126(CS_PIN);
@@ -225,15 +234,27 @@ uint16_t read16(uint8_t a, int sensorNum) {
   else if(sensorNum == 2)  _addr = MLX90615_I2CADDR2;
   else if(sensorNum == 3)  _addr = MLX90615_I2CADDR3;
   else if(sensorNum == 4)  _addr = MLX90615_I2CADDR4;
+  else if(sensorNum == 5)  _addr = MLX90615_I2CADDR5;
+  else if(sensorNum == 6)  _addr = MLX90615_I2CADDR6;
+  else if(sensorNum == 7)  _addr = MLX90615_I2CADDR7;
+  else if(sensorNum == 8)  _addr = MLX90615_I2CADDR8;
+  else if(sensorNum == 9)  _addr = MLX90615_I2CADDR9;
+  else if(sensorNum == 10) _addr = MLX90615_I2CADDR10;
+  else if(sensorNum == 11) _addr = MLX90615_I2CADDR11;
+  else if(sensorNum == 12) _addr = MLX90615_I2CADDR12;
+  else if(sensorNum == 13) _addr = MLX90615_I2CADDR13;
+  else if(sensorNum == 14) _addr = MLX90615_I2CADDR14;
+  else if(sensorNum == 15) _addr = MLX90615_I2CADDR15;
+
   
   uint16_t ret;
   Wire.beginTransmission(_addr);                  // start transmission to device 
-  Wire.write(a); delay(1);                        // sends register address to read from
+  Wire.write(a); delayMicroseconds(100);                        // sends register address to read from
   Wire.endTransmission(false);                    // end transmission
-  Wire.requestFrom(_addr, (uint8_t)3); delay(1);  // send data n-bytes read
+  Wire.requestFrom(_addr, (uint8_t)3); delayMicroseconds(100);  // send data n-bytes read
   ret = Wire.read();// delay(1);                    // receive DATA
   ret |= Wire.read() << 8;// delay(1);              // receive DATA
-  uint8_t pec = Wire.read(); delay(1);
+  uint8_t pec = Wire.read(); delayMicroseconds(100);
   return ret;
 }
 
@@ -410,31 +431,72 @@ void setupBluetooth(){
 
 void setup() 
 {
+    //Configure lidar device selection pins (XSHUT)
+    pinMode(VL53L0X_SELECT1, OUTPUT); pinMode(VL53L0X_SELECT2, OUTPUT); pinMode(VL53L0X_SELECT3, OUTPUT); 
+     
     Serial.begin(115200);
     if(debug) Serial.print("STARTING\t");
     delay(50);
 
     // start the I2C library:
     Wire.begin();
+ //   Wire.setClock(250000); //increase from default 100KHz
     delay(50);
 
+
+
   /************ INIT VL53L0X DISTANCE SENSOR *****************************/
-    Serial.println("VL6180X INIT");
-    vl6180x.init();
-    delay(500);
-    Serial.println("VL6180X vl6180x.configureDefault();");
-    vl6180x.configureDefault();
-    delay(500);
-    Serial.println("VL6180X vl6180x.setTimeout(100);");
-    vl6180x.setTimeout(100);
+
+
+    //Reset lidar devices
+ //   Serial.println("RESET VL53L0X LIDAR");
+    digitalWrite(VL53L0X_SELECT1, 0); digitalWrite(VL53L0X_SELECT2, 0); digitalWrite(VL53L0X_SELECT3, 0);    
     delay(100);
-    vl6180x.setScaling(2); //resolution x0.5 , range x2
+ 
+    
+    Serial.println("VL53L0X LIDAR1 INIT");
+    //disable (sleep mode) lidar #2 and lidar #3
+    digitalWrite(VL53L0X_SELECT1, 1); 
+    delay(100);
+    lidar1.init();
+    lidar1.setAddress(0x45);
+    lidar1.setTimeout(500);
+
+
+    Serial.println("VL53L0X LIDAR2 INIT");
+    //wake up lidar #2
+    digitalWrite(VL53L0X_SELECT2, 1);
+    delay(100);
+    lidar2.init();
+    lidar2.setAddress(0x46);
+    lidar2.setTimeout(500);
+
+    Serial.println("VL53L0X LIDAR3 INIT");
+    //wake up lidar #3
+    digitalWrite(VL53L0X_SELECT3, 1);
+    delay(100);
+    lidar3.init();
+    lidar3.setAddress(0x47); //default address is 0x29
+    lidar3.setTimeout(500);
+
     delay(100);
 
-  /************ INIT KX126 ACCELEROMETER *****************************/
+  // Start continuous back-to-back mode (take readings as
+  // fast as possible).  To use continuous timed mode
+  // instead, provide a desired inter-measurement period in
+  // ms (e.g. sensor.startContinuous(100)).
+    lidar1.startContinuous(60);
+    delay(80);
+    lidar2.startContinuous(60);
+    delay(80);
+    lidar3.startContinuous(60);
+     
+
+      /************ INIT KX126 ACCELEROMETER *****************************/
     Serial.print("KX126 INIT RESPONSE WAS ");
     Serial.println(kx126.init());
     delay(200);
+
 
   /************ I/O BUTTON, LED, HAPTIC FEEDBACK *********************/
      //Configure display LED pins
@@ -461,12 +523,6 @@ void setup()
     /************ CONFIGURE & START BLUETOOTH *********************/
     setupBluetooth();
   
-
-    //fill NN weight array with zeros
-    for(int i = 0; i < nnLength; i++){
-      F[i] = 99.999;
-    }
-
   delay(500);  
 }
 
@@ -515,21 +571,23 @@ if(clocktime + speedMs < millis()){
     digitalWrite(VIBRATE_PIN, 0);
   }
 
+
    /************** READ KX126 ACCELEROMETER *****************************/
    sampleAngularPosition();
    if(debug_time){ Serial.print("Time after accelerometer read: "); Serial.println( (millis() - clocktime))/1000; }
-    
-
-   /************** READ MLX90615 THERMOPILES ****************************/
-   sampleThermopiles();
-   if(debug_time){ Serial.print("Time after thermo read: "); Serial.println( (millis() - clocktime))/1000; }
 
 
    /************** READ VL6180X LIDAR DISTANCE **************************/ 
    sampleLIDAR();   
    if(debug_time){ Serial.print("Time after distance read: "); Serial.println( (millis() - clocktime))/1000; }
 
-    
+
+   /************** READ MLX90615 THERMOPILES ****************************/
+   sampleThermopiles();
+   if(debug_time){ Serial.print("Time after thermo read: "); Serial.println( (millis() - clocktime))/1000; }
+
+
+
 
    /************** TRANSMIT SENSOR DATA OVER BLUETOOTH ******************/ 
    transmitSensorData();
@@ -539,12 +597,6 @@ if(clocktime + speedMs < millis()){
    /************** PRINT SENSOR DATA TO CONSOLE *************************/ 
    if(debug){ printSensorData(); }
    
-    
-   /************** NEURAL NETWORK GESTURE RECOGNITION *******************/
-   if(selectNN != 0){
-      int setting = 0; //dummy for now
-      detectGesture(selectNN, setting, TObj[0], TObj[1], TObj[2], TObj[3], distance, pitch, roll);
-   }
 
     //Debug var state
 /*    if(debug){
@@ -610,10 +662,11 @@ void sampleAngularPosition(){
 *************** READ MLX90615 THERMOPILES ****************************
 *********************************************************************/
 void sampleThermopiles(){
-    for(int j = 0; j < 4; j++){
+    for(int j = 0; j < 15; j++){
         TAmb[j] = readAmbientTempF(j+1); 
         TObj[j] = readObjectTempF(j+1);
     }
+
     TAmbAv = (TAmb[0] + TAmb[1] + TAmb[2] + TAmb[3]) / 4;
 }
 
@@ -621,9 +674,20 @@ void sampleThermopiles(){
 *************** READ VL6180X LIDAR DISTANCE **************************
 *********************************************************************/
 void sampleLIDAR(){
-    distance = 255 - (float)vl6180x.readRangeSingleMillimeters();
-    if(distance < 0.1){ distance = 0; } // edge case
-    if (vl6180x.timeoutOccurred() && debug) { Serial.print(" TIMEOUT"); } 
+
+    distance[0] = (float)lidar1.readRangeContinuousMillimeters();
+    if(distance[0] < 0.1){ distance[0] = 0; } // edge case
+    if (lidar1.timeoutOccurred() && debug) { Serial.print("LIDAR1 TIMEOUT"); } 
+
+    distance[1] = (float)lidar2.readRangeContinuousMillimeters();
+    if(distance[1] < 0.1){ distance[1] = 0; } // edge case
+    if (lidar2.timeoutOccurred() && debug) { Serial.print("LIDAR2 TIMEOUT"); } 
+
+    distance[2] = (float)lidar3.readRangeContinuousMillimeters();
+    if(distance[2] < 0.1){ distance[2] = 0; } // edge case
+    if (lidar3.timeoutOccurred() && debug) { Serial.print("LIDAR3 TIMEOUT"); } 
+
+
 }
 
 /*********************************************************************
@@ -639,8 +703,8 @@ void transmitSensorData(){
                * Object temperature floor: 70F
                * Object temperature ceiling: 101F
                */
-              float TObj_compressed[4];
-              for(int q=0; q < 4; q++){
+              float TObj_compressed[15];
+              for(int q=0; q < 15; q++){
                   TObj_compressed[q] = TObj[q];
                   if(TObj_compressed[q] < 70){ TObj_compressed[q] = 70;  }
                   else if(TObj_compressed[q] > 101){ TObj_compressed[q] = 101;  }
@@ -662,7 +726,7 @@ void transmitSensorData(){
               const unsigned char imuCharArray[20] = {
                   (uint8_t)(roll),  
                   (uint8_t)(pitch),
-                  (uint8_t)(distance),
+                  (uint8_t)(distance[0]),
                   (uint8_t)(TObj_compressed[0]),  
                   (uint8_t)(TObj_compressed[1]),
                   (uint8_t)(TObj_compressed[2]),
@@ -696,10 +760,21 @@ void printSensorData(){
 
     batteryValue = ( (float)analogRead(BATTERY_PIN) / 1022) * 100; //max A read is 1023
   
-    Serial.print("OT1: "); Serial.print( TObj[0] ); Serial.print("\t"); 
-    Serial.print("OT2: "); Serial.print( TObj[1] ); Serial.print("\t");
-    Serial.print("OT3: "); Serial.print( TObj[2] ); Serial.print("\t");
-    Serial.print("OT4: "); Serial.print( TObj[3] ); Serial.print("\t");
+    Serial.print("T1: "); Serial.print( TObj[0] ); Serial.print(" "); 
+    Serial.print("T2: "); Serial.print( TObj[1] ); Serial.print(" ");
+    Serial.print("T3: "); Serial.print( TObj[2] ); Serial.print(" ");
+    Serial.print("T4: "); Serial.print( TObj[3] ); Serial.print(" ");
+    Serial.print("T5: "); Serial.print( TObj[4] ); Serial.print(" ");
+    Serial.print("T6: "); Serial.print( TObj[5] ); Serial.print(" ");
+    Serial.print("T7: "); Serial.print( TObj[6] ); Serial.print(" ");
+    Serial.print("T8: "); Serial.print( TObj[7] ); Serial.print(" ");
+    Serial.print("T9: "); Serial.print( TObj[8] ); Serial.print(" ");
+    Serial.print("T10: "); Serial.print( TObj[9] ); Serial.print(" ");
+    Serial.print("T11: "); Serial.print( TObj[10] ); Serial.print(" ");
+    Serial.print("T12: "); Serial.print( TObj[11] ); Serial.print(" ");
+    Serial.print("T13: "); Serial.print( TObj[12] ); Serial.print(" ");
+    Serial.print("T14: "); Serial.print( TObj[13] ); Serial.print(" ");
+    Serial.print("T15: "); Serial.print( TObj[14] ); Serial.print(" ");
     Serial.print("DTav: "); Serial.print( TAmbAv ); Serial.println("");
 
     Serial.print("pitch: "); Serial.print( pitch ); Serial.print("\t"); 
@@ -708,10 +783,9 @@ void printSensorData(){
     Serial.print("accY: "); Serial.print( acc[1] ); Serial.print("\t"); 
     Serial.print("accZ: "); Serial.print( acc[2] ); Serial.println(""); 
     
-    Serial.print("Distance (mm): "); Serial.println(distance); 
+    Serial.print("Distance (mm): "); Serial.print(distance[0]); Serial.print("\t"); Serial.print(distance[1]); Serial.print("\t"); Serial.println(distance[2]);
 
     Serial.print("CMD: "); Serial.println(command_value);
-    Serial.print("NN5: "); Serial.print(fiveInScore); Serial.print("  NN7: "); Serial.print(sevenInScore);
     Serial.print("  Battery: "); Serial.println(batteryValue);
 }
 
@@ -780,48 +854,6 @@ void ledMGMT(){
 }
 
 
-/*********************************************************************
-*************** NEURAL NETWORK GESTURE RECOGNITION *******************
-*********************************************************************/
-void detectGesture(int selectNN, int setting, float t1, float t2, float t3, float t4, float distance, float pitch, float roll){
-  float fivePrediction = 0; float sevenPrediction = 0;
-
-  //normalize
-  t1 = t1 / 101;
-  t2 = t2 / 101;
-  t3 = t3 / 101;
-  t4 = t4 / 101;
-  distance = distance / 250;
-  pitch = pitch / 360;
-  roll = roll / 360;
-  
-if(debug){ Serial.print("in detectGesture selectNN: "); Serial.print(selectNN); Serial.print("  "); Serial.print(t1); Serial.print("  "); Serial.print(distance); Serial.print("  "); Serial.println(pitch); }
-  if(selectNN == 1){        //mouth --> left hand
-      fivePrediction = nn_lefthand_mouth_5521(t1, t2, t3, t4, distance);
-      if(fivePrediction > 50){ sevenPrediction = nn_lefthand_mouth_7521(t1, t2, t3, t4, distance, pitch, roll); }
-  } else if(selectNN == 2){ //front head --> left hand
-   
-  } else if(selectNN == 3){ //top head --> left hand
-    
-  } else if(selectNN == 4){ //back head --> left hand
-    
-  } else if(selectNN == 5){ //right head --> left hand
-    
-  } else if(selectNN == 6){ //left head --> left hand
-      fivePrediction = nn_lefthand_lefthead_5521(t1, t2, t3, t4, distance);
-      if(fivePrediction > 50){ sevenPrediction = nn_lefthand_lefthead_7521(t1, t2, t3, t4, distance, pitch, roll); }
-  } else if(selectNN == 7){
-    
-  }
-  //for display
-  fiveInScore = fivePrediction;
-  sevenInScore = sevenPrediction;
-
-  //detection algo
-  if(fivePrediction > 95 && sevenPrediction > 50 || fivePrediction > 50 && sevenPrediction > 95){ flag_detect = true; } else {flag_detect = false;}
-  //haptic feedback duration
-  if(flag_detect){ vibrate_counter = 3; }
-}
 
 /*********************************************************************
 *************** ETC **************************************************
