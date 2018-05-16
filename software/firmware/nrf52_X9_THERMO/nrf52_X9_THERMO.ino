@@ -194,6 +194,7 @@ KX126_SPI kx126(CS_PIN);
 //IR LED gesture sensor APDS9960
 APDS9960 apds = APDS9960();
 int isr_flag = 0;
+uint8_t proximity_apds9960 = 0;
 
 //Bluetooth
 // create peripheral instance, see pinouts above
@@ -487,12 +488,24 @@ void setup()
       Serial.println(F("Something went wrong during APDS-9960 init!"));
     }
     
-    // Start running the APDS-9960 gesture sensor engine
+  /*  // Start running the APDS-9960 gesture sensor engine
     if ( apds.enableGestureSensor(true) ) {
       Serial.println(F("Gesture sensor is now running"));
     } else {
       Serial.println(F("Something went wrong during gesture sensor init!"));
     }
+    */
+      // Adjust the Proximity sensor gain
+  if ( !apds.setProximityGain(PGAIN_2X) ) {
+    Serial.println(F("Something went wrong trying to set PGAIN"));
+  }
+  
+  // Start running the APDS-9960 proximity sensor (no interrupts)
+  if ( apds.enableProximitySensor(false) ) {
+    Serial.println(F("Proximity sensor is now running"));
+  } else {
+    Serial.println(F("Something went wrong during sensor init!"));
+  }
 
 
   /************ INIT KX126 ACCELEROMETER *****************************/
@@ -548,11 +561,24 @@ if(SLEEP_MODE){
     //startup IR gesture
     apds.enablePower();
         // Start running the APDS-9960 gesture sensor engine
-    if ( apds.enableGestureSensor(true) ) {
+  /*  if ( apds.enableGestureSensor(true) ) {
       if(debug){ Serial.println(F("Gesture sensor is now running")); }
     } else {
       if(debug){ Serial.println(F("Something went wrong during gesture sensor init!")); }
-    }
+    } */
+    //Start running APDS-9960 proximity sensor
+  // Adjust the Proximity sensor gain
+  if ( !apds.setProximityGain(PGAIN_2X) ) {
+    Serial.println(F("Something went wrong trying to set PGAIN"));
+  }
+  
+  // Start running the APDS-9960 proximity sensor (no interrupts)
+  if ( apds.enableProximitySensor(false) ) {
+    Serial.println(F("Proximity sensor is now running"));
+  } else {
+    Serial.println(F("Something went wrong during sensor init!"));
+  }
+
     delay(50);
 
     
@@ -630,6 +656,7 @@ if(clocktime + speedMs < millis() && SLEEP_MODE != true){
     attachInterrupt(APDS9960_INT, interruptRoutine, FALLING);
   }
   */
+  apds.readProximity(proximity_apds9960);
 
 
    /************** TRANSMIT SENSOR DATA OVER BLUETOOTH ******************/ 
@@ -794,11 +821,11 @@ void transmitSensorData( uint8_t packetPosition ){
 
                 (uint8_t)(hand_gesture), 
 
-                (uint8_t)(0), 
-                (uint8_t)(0), 
-                (uint8_t)(0), 
-                (uint8_t)(0), 
-                (uint8_t)(0), 
+                (uint8_t)( (acc[0] + 1) *100 ), 
+                (uint8_t)( (acc[1] + 1) *100 ), 
+                (uint8_t)( (acc[2] + 1) *100 ), 
+                (uint8_t)(batteryValue), 
+                (uint8_t)(proximity_apds9960), 
                 (uint8_t)(0), 
                 (uint8_t)(0), 
                 (uint8_t)(0), 
@@ -855,6 +882,7 @@ void printSensorData(){
     Serial.print("accZ: "); Serial.print( acc[2] ); Serial.println(""); 
     
     Serial.print("Distance (mm): "); Serial.print(distance[0]); Serial.print("\t"); Serial.print(distance[1]); Serial.print("\t"); Serial.println(distance[2]);
+    Serial.print("APDS9960 Prox (mm): "); Serial.println(proximity_apds9960);
 
     Serial.print("CMD: "); Serial.println(received_command);
     Serial.print("  Battery: "); Serial.println(batteryValue);
