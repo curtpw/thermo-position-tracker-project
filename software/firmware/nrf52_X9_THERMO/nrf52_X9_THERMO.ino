@@ -571,6 +571,10 @@ if(SLEEP_MODE){
   if ( !apds.setProximityGain(PGAIN_2X) ) {
     Serial.println(F("Something went wrong trying to set PGAIN"));
   }
+
+  if ( !apds.setLEDDrive(LED_DRIVE_25MA) ) {
+    Serial.println(F("Something went wrong trying to set LED Drive"));
+  }
   
   // Start running the APDS-9960 proximity sensor (no interrupts)
   if ( apds.enableProximitySensor(false) ) {
@@ -810,9 +814,9 @@ void transmitSensorData( uint8_t packetPosition ){
                 (uint8_t)(TObj_compressed[20]),
                 (uint8_t)(TObj_compressed[21]),
                   
-                (uint8_t)(distance[0]),
-                (uint8_t)(distance[1]),
-                (uint8_t)(distance[2]),  
+                (uint8_t)(distance[0] / 4),
+                (uint8_t)(distance[1] / 4),
+                (uint8_t)(distance[2] / 4),  
                    
                 (uint8_t)(pitch),   
                 (uint8_t)(roll),  
@@ -821,9 +825,9 @@ void transmitSensorData( uint8_t packetPosition ){
 
                 (uint8_t)(hand_gesture), 
 
-                (uint8_t)( (acc[0] + 1) *100 ), 
-                (uint8_t)( (acc[1] + 1) *100 ), 
-                (uint8_t)( (acc[2] + 1) *100 ), 
+                (uint8_t)( (acc[0] + 10) *10 ), 
+                (uint8_t)( (acc[1] + 10) *10 ), 
+                (uint8_t)( (acc[2] + 10) *10 ), 
                 (uint8_t)(batteryValue), 
                 (uint8_t)(proximity_apds9960), 
                 (uint8_t)(0), 
