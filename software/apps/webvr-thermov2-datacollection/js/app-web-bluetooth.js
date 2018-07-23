@@ -5,10 +5,6 @@
 ​z=r cos(φ)
 */
 
-  // !! Joystick & Distance global var
-  var xJoystick = 0;
-  var yJoystick = 0;
-  var distanceSensor = 0;
 
   //absolute position globals
   var xCoordinate = 0;
@@ -42,7 +38,7 @@ window.onload = function(){
 
 
   //sensor array sample data
-  var sensorDataArray = new Array(32).fill(0); 
+  var sensorDataArray = new Array(35).fill(0); 
 
   //master session data array of arrays
   var sensorDataSession = [];
@@ -81,13 +77,6 @@ window.onload = function(){
       sensorController.connect();
 
       sensorController.onStateChange(function(state){
-      //console.log("app.js state change");
-
-   /*   accelerometerData = state.accelerometer;
-      objectTempData = state.objectTemp;
-      ambientTempData = state.ambientTemp;
-      heartRateData = state.heartRate; */
-
 
       //if data sample collection has been flagged
       sensorDataArray = new Array(30).fill(0); 
@@ -310,16 +299,19 @@ window.onload = function(){
 
   function collectData(){
 
-      var collectedDataArray =  new Array(21).fill(0);  //18 device + 3 joystick jig
+      var collectedDataArray =  new Array(32).fill(0);  //28 device + 6 Vive VR controller
       collectedDataArray = sensorDataArray;
 
 
-   /************* ADD JOYSTICK JIG DATA TO END *********************/
-      collectedDataArray[28] = xJoystick.toFixed(4);
-      collectedDataArray[29] = yJoystick.toFixed(4);
-      collectedDataArray[30] = distanceSensor.toFixed(4);
+   /************* ADD VIVE VR CONTROLLER DATA TO END *********************/
+      collectedDataArray[28] = positionVR.x.toFixed(6);
+      collectedDataArray[29] = positionVR.y.toFixed(6);
+      collectedDataArray[30] = positionVR.z.toFixed(6);
+      collectedDataArray[31] = positionVR.a.toFixed(6);
+      collectedDataArray[32] = positionVR.b.toFixed(6);
+      collectedDataArray[33] = positionVR.c.toFixed(6);
 
-      console.log("web bluetooth sensor data:");
+      console.log("web bluetooth & VR sensor data:");
 
       console.dir(collectedDataArray);
 
