@@ -1,0 +1,766 @@
+<!doctype html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+
+    <title>Thermo Position Tracking Toolkit</title>
+
+    <link type="text/css" rel="stylesheet" href="css/PoseEditor.css">
+    <link type="text/css" rel="stylesheet" href="css/web-bluetooth.css">
+    <link rel="stylesheet" type="text/css" href="css/gamepad.css">
+
+    <!-- aframe -->
+    <link rel="stylesheet" type="text/css" href="assets/examples.css">
+
+                              
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+
+    
+     <!-- data and data processing files, JSON or raw JS object --> 
+    <!-- <script type="text/javascript" src="js/V2sensorData_31s_5-16-18.js"></script> -->
+     <script type="text/javascript" src="js/V2sensorData_COMBINED_plusafterhours_31s_5-17-18.js"></script> 
+
+     <script type="text/javascript" src="js/thermoV2_exported_NN_13000samples_25-12-12-12_5-21-18.js"></script>
+     <script type="text/javascript" src="js/thermoV2_exported_NN_13000samples_25-7-7-12_5-17-18.js"></script>
+  <!--   <script type="text/javascript" src="js/exported_NN_12-4-4-12_10-24-17.js"></script> -->
+
+     <!-- get data from absolute position device -->
+    <script type="text/javascript" src="js/sensor-web-bluetooth.js"></script>
+
+    <!-- library for neural network -->
+    <script src="js/synaptic.js"></script>
+
+    <!-- primary app code get web bluetooth data, collect data from model, apply to neural network -->
+    <!-- ahoy, there be global vars and magic numbers galore -->
+    <script type="text/javascript" src="js/app-web-bluetooth.js"></script>
+
+    <!-- aframe -->
+    <script src="js/build.js"></script>
+
+
+    <script>
+    /************ AFRAME ***********/
+    var positionVR = {x:0, y:0, z:0, a:0, b:0, c:0};
+
+      AFRAME.registerComponent('listener', {
+        tick: function () {
+          
+          let positionNew = this.el.getAttribute('position');
+          let rotationNew = this.el.getAttribute('rotation');
+
+          if(positionVR.x != positionNew.x || positionVR.y != positionNew.y || positionVR.z != positionNew.z){
+            
+            console.log(positionNew);
+            console.log(rotationNew);
+
+            positionVR.x = positionNew.x;
+            positionVR.y = positionNew.y;
+            positionVR.z = positionNew.z;
+
+            positionVR.a = rotationNew.x;
+            positionVR.b = rotationNew.y;
+            positionVR.c = rotationNew.z;
+
+            $('.vr-pos-x span').text(' ' + positionVR.x.toFixed(4) );
+            $('.vr-pos-y span').text(' ' + positionVR.y.toFixed(4) );
+            $('.vr-pos-z span').text(' ' + positionVR.z.toFixed(4) );
+
+            $('.vr-pos-a span').text(' ' + positionVR.a.toFixed(4) );
+            $('.vr-pos-b span').text(' ' + positionVR.b.toFixed(4) );
+            $('.vr-pos-c span').text(' ' + positionVR.c.toFixed(4) );
+          }
+          
+        }
+      });
+
+
+
+    /********** END AFRAME *********/
+    </script>
+
+      <!--  <script src="https://unpkg.com/aframe-event-set-component@^4.0.0/dist/aframe-event-set-component.min.js"></script>  -->
+    <script src="js/aframe-event-set-component.min.js"></script>
+  <!--  <script src="https://rawgit.com/feiss/aframe-environment-component/master/dist/aframe-environment-component.min.js"></script> -->
+    <script src="js/aframe-environment-component.min.js"></script>
+
+
+    <style>
+    body{
+      background-color: black;
+    }
+    #interface-controls{
+      width: 38%;
+      margin-top: 5px;
+      display:inline-block;
+     /* height: 400px; */
+    }
+    .master-pose-ui{
+      display: inline-block;
+      margin-top: 15px;
+      margin-bottom: 15px;
+    }
+      #btnOne{
+        z-index: 99;
+        margin-top: 60px;
+      }
+
+      .range-slider {
+        z-index: 99;
+      margin: 18px 0 0 0;
+    }
+
+    .range-slider {
+      width: 100%;
+    }
+    .sample-size-div{
+      width: 280px;
+      display: inline-block;
+      margin-top: 0px;
+    }
+    .sample-size-div .range-slider__value{
+      width: 18px;
+    }
+    .sample-size-div p.range-label{
+      text-align: center;
+    }
+    .range-slider__value.master-pose{
+      background-color: gray;
+    }
+
+    .range-slider p{
+      margin: 0px;
+      margin-bottom: -8px;
+    }
+
+    p.range-label{
+      color: white;
+      margin-bottom: -10px;
+      font-size: 11px;
+    }
+
+    .range-slider__range {
+      -webkit-appearance: none;
+      width: calc(100% - (110px));
+      height: 5px;
+      border-radius: 5px;
+      background: #d7dcdf;
+      outline: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .range-slider__range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+              appearance: none;
+  /*    width: 20px;
+      height: 20px;   */
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+  /*    background: #2c3e50;   */
+      background: #dbca60;
+      cursor: pointer;
+      -webkit-transition: background .15s ease-in-out;
+      transition: background .15s ease-in-out;
+    }
+    .range-slider__range.transform {  /* these sliders no longer important so make smaller */
+      height: 5px;
+    }
+    .range-slider__range.transform::-webkit-slider-thumb {  /* these sliders no longer important so make smaller */
+            width: 15px;
+      height: 15px;
+    }
+    .range-slider__range::-webkit-slider-thumb:hover {
+      background: #1abc9c;
+    }
+    .range-slider__range:active::-webkit-slider-thumb {
+      background: #1abc9c;
+    }
+    .range-slider__range::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border: 0;
+      border-radius: 50%;
+      background: #2c3e50;
+      cursor: pointer;
+      -webkit-transition: background .15s ease-in-out;
+      transition: background .15s ease-in-out;
+    }
+    .range-slider__range::-moz-range-thumb:hover {
+      background: #1abc9c;
+    }
+    .range-slider__range:active::-moz-range-thumb {
+      background: #1abc9c; 
+      
+    }
+
+    .range-slider__value {
+      display: inline-block;
+      position: relative;
+      width: 40px;
+      color: #fff;
+      line-height: 20px;
+      text-align: center;
+      border-radius: 3px;
+      background: #d2691e; 
+      padding: 5px 10px;
+      margin-left: 8px;
+    }
+    .range-slider__value:after {
+      position: absolute;
+      top: 8px;
+      left: -7px;
+      width: 0;
+      height: 0;
+      border-top: 7px solid transparent;
+      border-right: 7px solid #d9b32a;
+      border-bottom: 7px solid transparent;
+      content: '';
+    }
+
+    ::-moz-range-track {
+      background: #d7dcdf;
+      border: 0;
+    }
+
+    input::-moz-focus-inner,
+    input::-moz-focus-outer {
+      border: 0;
+    }
+
+    .range-slider label {
+        position: absolute;
+        width: 20px;
+        margin-left: 5px;
+        margin-right: 5px;
+        text-align: center;
+        margin-top: 0px;
+        color: white;
+        font-size: 12px;
+    }
+
+    .sensor-data .data{
+      color: white;
+      width: 90px;
+      display: inline-block;
+      overflow: hidden;
+      font-size: 12px;
+    }
+    .sensor-container{
+      margin-top: 10px;
+    }
+    .intro{
+      margin-left: 0px;
+      margin-bottom: 0px;
+    }
+
+    .btn {
+      padding: 0px;
+        display: inline-block;
+        padding: 6px 12px;
+        margin-bottom: 0;
+        font-size: 18px;
+        font-weight: 500;
+        line-height: 1.428;
+        text-align: center;
+        white-space: nowrap;
+        vertical-align: middle;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        -o-user-select: none;
+        user-select: none;
+    }
+    .btn:hover {
+        background-color: #46b8da;
+        border-color: #31b0d5;
+    }
+    #collect.btn , #connect.btn, #print-btn.btn, #load-btn.btn, #train-btn.btn, #activate-btn, #export-btn, #train2-btn.btn, #activate2-btn, #export2-btn, #load-nn-btn{
+        color: #fff;
+        background-color: #3bafda;
+        border-color: #3bafda;
+        margin-right: 12px;
+        margin-bottom: 10px;
+        margin-top: 10px;
+        width: 115px;
+    }
+    #activate-btn, #export-btn, #activate2-btn, #export2-btn{
+      background-color: #3d3d3d;
+      border-color: #3d3d3d;
+      width: 125px;
+    }
+    #activate-btn.haveNN, #export-btn.haveNN, #activate2-btn.haveNN, #export2-btn.haveNN{
+      background-color: green;
+      border-color: green;
+    }
+    #activate-btn.activeNN, #activate2-btn.activeNN, #load-nn-btn.activeNN, #load-nn-btn.activatedNN{
+      background-color: red;
+      border-color: red;
+    }
+
+    /*   firebase  */
+    form {
+      margin-top: 30px;
+    }
+    form div{
+      display: inline-block;
+      margin-right: 3px;
+    }
+    form div input{
+      width: 80px;
+    }
+    form .label{
+      color: white;
+      font-style: bold;
+      font-weight: 600;
+    }
+    form .btn, button#back-pose, button#forward-pose, button#go-pose{
+      color: #fff;
+        background-color: #d9b32a;
+        border-color: #d9b32a;
+        margin-right: 5px;
+        width: 80px;
+        font-size: 14px;
+        font-weight: 600;
+        padding: 0px 0px;
+    }
+    #container{
+    }
+    .console div, .console p{
+      display: inline-block;
+      margin-top:0px; margin-bottom: 0px;
+      font-size: 12px;
+      color:white;
+    }
+    .console p span{
+      color: yellow;
+    }
+    .master-pose-ui-label{
+      color: white;
+      font-size: 16px;
+      margin-top: 0px; margin-bottom: 0px;
+      font-weight: 600;
+      display: inline-block;
+    }
+    .range-slider.master-pose{
+      margin-top: 0px;
+    }
+    #master-pose-input{
+      width: 40px;
+    }
+    .heat-map{
+    	width: 30%;
+    	display: inline-block;
+      margin-top: -50px;
+      float: right;
+    	height: 400px;
+    }
+    .heat-map .heat-row{
+    	width: 98%;
+    	margin-left: 10%;
+    }
+    .heat-map .heat-block{
+    	display:inline-block;
+    	width: 20%;
+    	position: relative;
+    }
+    .heat-map .heat-item{
+    	color: #6b6b6b;
+    	text-align: center;
+    	font-size: 6rem;
+    	line-height: 4rem;
+    	z-index:2;
+    	/* width: 90%; */
+    }
+    .heat-map .heat-item1{
+        margin-bottom: 3rem;
+    }
+    .heat-map .heat-item2, .heat-map .heat-item3{
+    	margin-top: -40px;
+    	position: relative;
+    }
+    .heat-map .heat-item2{
+    	font-size: 8.5rem;
+    }
+    .heat-map .heat-item3{
+    	font-size: 7.5rem;
+    }
+    .heat-map .heat-item::after { 
+	    font-size: 0.8rem;
+	    height: 10px;
+	    position: absolute;
+	    width: 10%;
+	    left: 0px;
+	    top: 0px;
+	    z-index: 9;
+	    color: white;
+	}
+
+
+	.coordinates{
+		color: white;
+		font-size: 1.5rem;
+    height: 50px;
+	}
+  .coordinates p{
+    display: inline-block;
+  }
+  #coordinates1, #absolute-position1{
+    color: red;
+  }
+  #coordinates2, #absolute-position2{
+    color: green;
+  }
+  #coordinates3, #absolute-position3{
+    color: purple;
+  }
+  #coordinates4, #absolute-position4{
+    color: orange;
+  }
+	.absolute-position{
+		position:absolute;
+		top: 3%;
+		left: 3%;
+		color: red;
+		font-size: 7rem;
+        z-index: 99;
+	}
+
+    div.vr-val-display{
+      width:32%;
+      display: inline-block;
+      margin-top:0px; margin-bottom: 0px;
+      font-size: 12px;
+      color:white;
+    }
+    div.vr-val-display span{
+      color: yellow;
+    }
+
+    #coordinate-display-container{
+      display:inline-block;
+      float: right;
+    }
+    #dump-print{
+    	background-color: white;
+    }
+
+    /* AFRAME */
+    a-scene.fullscreen .a-canvas {
+      width: 40%!important;
+      height: 40%!important;
+      top: 60%!important;
+      left: 60%!important;
+      right: 0!important;
+      bottom: 0!important;
+      position: fixed!important;
+    }
+
+  </style>
+
+
+  </head>
+
+
+  <body>
+  	<!-- this circle moves across the screen and changes size according to 3D position coordinates -->
+  	<div id="absolute-position1" class="absolute-position">&#9679;</div>
+ <!--   <div id="absolute-position2" class="absolute-position">&#9679;</div> -->
+    <div id="absolute-position3" class="absolute-position">&#9679;</div>
+ <!--   <div id="absolute-position4" class="absolute-position">&#9679;</div>  -->
+
+<!-- WEB BLUETOOTH SENSOR SYNC TEST HTML -->
+    <section class="sensor-container">
+      <div class="sensor-data">
+          <div class="data">OT1: <span class="object-temp-1-data"></span></div>
+          <div class="data">OT2: <span class="object-temp-2-data"></span></div>
+          <div class="data">OT3: <span class="object-temp-3-data"></span></div>
+          <div class="data">OT4: <span class="object-temp-4-data"></span></div>
+          <div class="data">OT5: <span class="object-temp-5-data"></span></div>
+          <div class="data">OT6: <span class="object-temp-6-data"></span></div>
+          <div class="data">OT7: <span class="object-temp-7-data"></span></div>
+          <div class="data">OT8: <span class="object-temp-8-data"></span></div>
+          <div class="data">OT9: <span class="object-temp-9-data"></span></div>
+          <div class="data">OT10: <span class="object-temp-10-data"></span></div>
+          <div class="data">OT11: <span class="object-temp-11-data"></span></div>
+          <div class="data">OT12: <span class="object-temp-12-data"></span></div>
+          <div class="data">OT13: <span class="object-temp-13-data"></span></div>
+          <div class="data">OT14: <span class="object-temp-14-data"></span></div>
+          <div class="data">OT15: <span class="object-temp-15-data"></span></div>
+          <div class="data">OT16: <span class="object-temp-16-data"></span></div>
+          <div class="data">OT17: <span class="object-temp-17-data"></span></div>
+          <div class="data">OT18: <span class="object-temp-18-data"></span></div>
+          <div class="data">OT19: <span class="object-temp-19-data"></span></div>
+          <div class="data">OT20: <span class="object-temp-20-data"></span></div>
+          <div class="data">OT21: <span class="object-temp-21-data"></span></div>
+          <div class="data">OT22: <span class="object-temp-22-data"></span></div>
+
+          <div class="data">Distance1: <span class="distance-1-data"></span></div>
+          <div class="data">Distance2: <span class="distance-2-data"></span></div>
+          <div class="data">Distance3: <span class="distance-3-data"></span></div>
+        
+
+          <div class="data">Pitch: <span class="accelerometer-pitch-data"></span></div> 
+          <div class="data">Roll: <span class="accelerometer-roll-data"></span></div>
+
+          <div class="data">APDS9960: <span class="apds9960-data"></span></div>
+
+          <div class="data">ATav: <span class="ambient-temp-average-data"></span></div>
+
+          <div class="data">Battery: <span class="battery-data"></span></div>
+        
+      </div>
+    </section>
+
+
+
+    <div  class="data-ui">
+        <button id="print-btn" class="btn">
+          Print Data
+        </button>
+        <button id="load-btn" class="btn">
+          Load Data
+        </button>
+        <button id="train-btn" class="btn">
+          Train NN1
+        </button>
+        <button id="export-btn" class="btn">
+          Export NN1
+        </button>
+        <button id="activate-btn" class="btn">
+          Activate NN1
+        </button>
+        <button id="train2-btn" class="btn">
+          Train NN2
+        </button>
+        <button id="export2-btn" class="btn">
+          Export NN2
+        </button>
+        <button id="activate2-btn" class="btn">
+          Activate NN2
+        </button>
+        <button id="load-nn-btn" class="btn">
+          Load NN
+        </button>
+    </div>
+
+<!-- info about collected sensor data samples -->
+    <div class="console">
+        <p>#Samples:</p><div class="console-samples">0</div>
+        <p>#Sets:</p><div class="console-sets">0</div>
+    </div>
+
+    <div class="intro">
+        <button id="connect" class="btn">
+          Connect
+        </button>
+
+        <span id="message"></span>
+
+        <div class="range-slider sample-size-div">
+          <p class="range-label"># Samples</p>
+          <input class="range-slider__range sample-size" type="range" value="25" min="25" max="1000" step="25">
+          <span class="range-slider__value">0</span>
+        </div>
+
+        <button id="collect" class="btn">
+          Collect
+        </button>
+    </div>
+
+  	<div id="interface-controls">
+        <div class="vrcontroller vr-val-display vr-pos-x">VR position X:<span></span></div>
+        <div class="vrcontroller vr-val-display vr-pos-y">VR position Y:<span></span></div>
+        <div class="vrcontroller vr-val-display vr-pos-z">VR position Z:<span></span></div>
+
+        <div class="vrcontroller vr-val-display vr-pos-a">VR rotation &#945;:<span></span></div>
+        <div class="vrcontroller vr-val-display vr-pos-b">VR rotation &#946;:<span></span></div>
+        <div class="vrcontroller vr-val-display vr-pos-c">VR rotation &#947;:<span></span></div>
+  	</div>
+
+    <div id="coordinate-display-container">
+          <div id="coordinates1" class="coordinates"></div>
+     <!--   <div id="coordinates2" class="coordinates"></div> -->
+          <div id="coordinates3" class="coordinates"></div>
+    <!--    <div id="coordinates4" class="coordinates"></div>  -->
+    </div>
+
+
+
+
+
+<!-- START AFRAME -->
+  <a-scene physics="debug: true" environment="preset: contact; shadow: true">
+      <a-assets>
+        <a-mixin id="controller"
+                 super-hands
+                 static-body="shape: sphere; sphereRadius: 0.03;"
+                 sphere-collider="objects: #stick, [link], .ball;"></a-mixin>
+        <a-mixin id="ball" geometry="primitive: sphere; radius: 0.33"
+                 stretchable="startButtons: trackpaddown; endButtons: trackpadup"
+                 hoverable
+                 event-set__hoveron="_event: hover-start; material.opacity: 0.7; transparent: true"
+                 event-set__hoveroff="_event: hover-end; material.opacity: 1; transparent: false"
+                 dynamic-body shadow></a-mixin>
+        <a-mixin id="floor" static-body
+                 geometry="width: 50; height: 50; depth: 0.01"
+                 shadow="cast: false"></a-mixin>
+        <a-mixin id="bat" hoverable
+                 grabbable="startButtons: triggerdown; endButtons: trackpadup"
+                 event-set__hoveron="_event: hover-start; material.opacity: 0.7; transparent: true"
+                 event-set__hoveroff="_event: hover-end; material.opacity: 1; transparent: false"
+                 material="color: brown" shadow></a-mixin>
+        <img id="portals-preview" src="assets/portals.jpg"></img>
+      </a-assets>
+
+      <a-entity listener camera="active: true" look-controls wasd-controls position="0 0.7 -0.2" data-aframe-default-camera></a-entity>
+      <a-entity>
+        <a-entity hand-controls="left" mixin="controller"></a-entity>
+        <a-entity hand-controls="right" mixin="controller"></a-entity>
+      </a-entity>
+      <a-entity class="ball" mixin="ball" position="0 0.45 -1" material="color: red"></a-entity>
+      <a-entity class="ball" mixin="ball" position="0 0.45 1" material="color: red"></a-entity>
+      <a-entity class="ball" mixin="ball" position="-1 0.45 -1" material="color: blue"></a-entity>
+      <a-entity class="ball" mixin="ball" position="-1 0.45 1" material="color: blue"></a-entity>
+      <a-entity class="ball" mixin="ball" position="1 0.45 -1" material="color: green"></a-entity>
+      <a-entity class="ball" mixin="ball" position="1 0.45 1" material="color: green"></a-entity>
+      <a-cone id="stick" mixin="bat" position="0 0.5 0" height="1" dynamic-body
+              rotation="0 0 -90" radius-top="0.03" radius-bottom="0.02" >
+      </a-cone>
+      <a-box mixin="floor" position="0 0.01 0" rotation="-90 0 0" ></a-box>
+      <a-box mixin="floor" position="0 0 -1.5" rotation="-85 0 0"></a-box>
+      <a-box mixin="floor" position="0 0 1.5" rotation="85 0 0" side="back"></a-box>
+      <a-box mixin="floor" position="-1.5 0 0" rotation="-85 90 0"></a-box>
+      <a-box mixin="floor" position="1.5  0 0" rotation="-85 -90 0"></a-box>
+      <a-entity link="href: portals.html; title: Other Examples;
+              image: #portals-preview; on: mousedown"
+              onmouseover="this.setAttribute('link', {highlighted: true})"
+              onmouseout="this.setAttribute('link', {highlighted: false})"
+              position = "0 1.6 0.7" rotation="0 0 0" scale="0.25 0.25 0.25">
+      </a-link>
+    </a-scene>
+<!-- END AFRAME -->
+
+
+  <div id="dump-print"></div>
+   
+  </body>
+
+<script>
+var altMasterPoseUIFlag = false; //we have multiple UI directed towards changing master pose which we must update without redundant pose transforms
+
+      var rangeSlider = function(){
+        var slider = $('.range-slider'),
+            range = $('.range-slider__range'),
+            value = $('.range-slider__value');
+          
+        slider.each(function(){
+
+          value.each(function(){
+            var value = $(this).prev().attr('value');
+            $(this).html(value);
+          });
+
+          range.on('input', function(){
+            $(this).next(value).html(this.value);
+          
+          });
+        });
+      }
+
+
+$( document ).ready(function() {
+      console.log( "ready!" );
+
+
+
+
+      rangeSlider();
+
+   
+      //RANGE SLIDER EVENT HANDLER
+      $('.range-slider__range.transform').on('input', function(){
+          console.log("^jquery range slider");
+
+          globalUpdate = true;
+
+          var boneName, angleNew, index, currentX, currentY, currentZ;
+
+          angleNew = $(this).val();
+
+          if( $(this).hasClass('elbow') ){ 
+            boneName = "rForeArm"; 
+
+            if( $(this).hasClass('x-angle') ){ angleData.elbow.x = angleNew; }
+            else if( $(this).hasClass('y-angle') ){ angleData.elbow.y = angleNew; }
+            else if( $(this).hasClass('z-angle') ){ angleData.elbow.z = angleNew; }
+
+            currentX = angleData.elbow.x;
+            currentY = angleData.elbow.y;
+            currentZ = angleData.elbow.z;
+          } else if( $(this).hasClass('hand') ){ 
+            boneName = "rHand"; 
+
+            if( $(this).hasClass('x-angle') ){ angleData.hand.x = angleNew; }
+            else if( $(this).hasClass('y-angle') ){ angleData.hand.y = angleNew; }
+            else if( $(this).hasClass('z-angle') ){ angleData.hand.z = angleNew; }
+
+            currentX = angleData.hand.x;
+            currentY = angleData.hand.y;
+            currentZ = angleData.hand.z;
+          } else if( $(this).hasClass('shoulder') ){ 
+            boneName = "rShldr"; 
+
+            if( $(this).hasClass('x-angle') ){ angleData.shoulder.x = angleNew; }
+            else if( $(this).hasClass('y-angle') ){ angleData.shoulder.y = angleNew; }
+            else if( $(this).hasClass('z-angle') ){ angleData.shoulder.z = angleNew; }
+
+            currentX = angleData.shoulder.x;
+            currentY = angleData.shoulder.y;
+            currentZ = angleData.shoulder.z;
+          }
+
+      });
+
+
+
+
+      $( ".range-slider" ).each(function() {
+
+        if(!$(this).hasClass("sample-size-div")){
+          // Add labels to slider whose values 
+          // are specified by min, max and whose
+          // step is set to 1
+            
+          // Get the options for this slider
+          //var opt = $(this).data().uiSlider.options;
+          // Get the number of possible values
+          var $input = $(this).find("input");
+          var min = parseInt($input.attr("min"));
+          var max = parseInt($input.attr("max"));
+          var step = parseInt($input.attr("step"));
+          var increment = parseInt($input.attr("increment"));
+          var vals = max - min; //opt.max - opt.min;
+          //if(min < 0){ vals = max + min; }
+            
+          // Space out values
+          for (var i = 0; (i * increment) <= vals; i++) {
+              var s = min + (i * increment);
+              var el = $('<label>'+ s +'</label>').css('left',( 3 + Math.abs((s-min)/vals) *($input.width() -24)+'px'));
+           //   var el = $('<label>'+ s +'</label>').css('left',( 3 + ((s-min)/vals) *($input.width() -24)+'px'));
+              $(this).append(el);
+          }
+        }
+
+      });
+
+  }); //end of on document load
+
+
+
+</script>
+
+</html>
